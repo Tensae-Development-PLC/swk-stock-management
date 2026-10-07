@@ -1,0 +1,52 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: swk-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-swk}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_strong_password}
+      POSTGRES_DB: ${POSTGRES_DB:-swk_stock}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - swk_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-swk} -d ${POSTGRES_DB:-swk_stock}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: swk-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: ${PORT:-3000}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-swk}:${POSTGRES_PASSWORD:-change_me_strong_password}@postgres:5432/${POSTGRES_DB:-swk_stock}?schema=public
+      JWT_SECRET: ${JWT_SECRET:-change_me_generate_a_long_random_secret}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-15m}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-change_me_generate_another_long_random_secret}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000,http://localhost:3001}
+      RECEIVING_TOKEN_TTL_HOURS: ${RECEIVING_TOKEN_TTL_HOURS:-168}
+      RECEIVING_PUBLIC_BASE_URL: ${RECEIVING_PUBLIC_BASE_URL:-http://localhost:3001/receive}
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@swk.local}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-Admin@SWK2026!}
+      SEED_ADMIN_FIRST_NAME: ${SEED_ADMIN_FIRST_NAME:-System}
+      SEED_ADMIN_LAST_NAME: ${SEED_ADMIN_LAST_NAME:-Administrator}
+    ports:
+      - "${PORT:-3000}:3000"
+    command: >
+      sh -c "npx prisma migrate deploy &&
+             npx prisma db seed &&
+             node dist/main.js"
+
+volumes:
+  swk_pgdata:

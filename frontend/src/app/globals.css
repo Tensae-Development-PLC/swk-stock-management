@@ -1,0 +1,135 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #f3f4f1;
+  --surface: #ffffff;
+  --surface-2: #eef0ec;
+  --ink: #1a1d1b;
+  --ink-muted: #5f6963;
+  --line: #dde1db;
+  --line-strong: #c8cec6;
+  --accent: #1b5f51;
+  --accent-hover: #164f43;
+  --accent-soft: #e7f1ee;
+  --success: #1b5f51;
+  --success-soft: #e7f1ee;
+  --warn: #9a6416;
+  --warn-soft: #f7efdf;
+  --danger: #a33a2f;
+  --danger-soft: #f8e9e7;
+  --info: #2f5f8a;
+  --info-soft: #e8eef5;
+  --sidebar: #fbfbfa;
+  --sidebar-border: #e4e7e2;
+  --shadow-sm: 0 1px 2px rgba(26, 29, 27, 0.04);
+  --shadow: 0 1px 2px rgba(26, 29, 27, 0.04), 0 8px 24px -12px rgba(26, 29, 27, 0.12);
+  --radius: 8px;
+  --radius-lg: 12px;
+  /* legacy aliases during redesign */
+  --paper: var(--bg);
+  --paper-2: var(--surface-2);
+  --ink-soft: var(--ink-muted);
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-paper: var(--paper);
+  --color-paper-2: var(--paper-2);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-soft: var(--ink-soft);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-success: var(--success);
+  --color-warn: var(--warn);
+  --color-danger: var(--danger);
+  --color-info: var(--info);
+  --font-sans: var(--font-body);
+  --font-display: var(--font-display);
+  --font-mono: var(--font-mono);
+}
+
+* {
+  border-color: var(--line);
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body), "Segoe UI", sans-serif;
+  min-height: 100%;
+}
+
+body {
+  letter-spacing: -0.01em;
+  font-size: 14.5px;
+  line-height: 1.5;
+}
+
+h1,
+h2,
+h3,
+.display {
+  font-family: var(--font-display), sans-serif;
+  letter-spacing: -0.03em;
+  color: var(--ink);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.enter {
+  animation: rise 0.35s ease both;
+}
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+}
+
+.metric-value {
+  font-family: var(--font-display), sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+}
+
+.scan-frame {
+  position: relative;
+}
+
+.scan-frame::after {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: 16%;
+  border: 1.5px solid color-mix(in srgb, var(--accent) 70%, white);
+  border-radius: 6px;
+  box-shadow: 0 0 0 999px rgba(26, 29, 27, 0.28);
+}

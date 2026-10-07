@@ -1,0 +1,657 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums — invalid values cannot be stored
+// ---------------------------------------------------------------------------
+
+enum InventoryStatus {
+  IN_STOCK
+  RESERVED
+  SOLD
+  DISPATCHED
+  AWAITING_RECEIPT
+  RECEIVED
+  IN_MAINTENANCE
+  RETURNED
+  DAMAGED
+  LOST
+}
+
+enum MovementType {
+  STOCK_IN
+  SALE
+  TRANSFER_OUT
+  TRANSFER_RECEIVED
+  RETURN
+  MAINTENANCE_OUT
+  MAINTENANCE_RETURN
+  ADJUSTMENT
+}
+
+enum TransferStatus {
+  CREATED
+  DISPATCHED
+  AWAITING_RECEIPT
+  RECEIVED
+  REJECTED
+  CANCELLED
+  EXPIRED
+}
+
+enum TransferItemStatus {
+  PENDING
+  DISPATCHED
+  RECEIVED
+  REJECTED
+  CANCELLED
+}
+
+enum ReceiptTokenStatus {
+  ACTIVE
+  USED
+  EXPIRED
+  REVOKED
+}
+
+enum ReceiptTokenPurpose {
+  RECEIVE
+  MAINTENANCE
+}
+
+enum VerificationResult {
+  MATCH
+  MISMATCH
+  EXPIRED_TOKEN
+  ALREADY_RECEIVED
+  INVALID_TOKEN
+  ITEM_NOT_ON_TRANSFER
+}
+
+enum SaleStatus {
+  COMPLETED
+  CANCELLED
+}
+
+enum StockInBatchStatus {
+  COMPLETED
+  CANCELLED
+}
+
+// ---------------------------------------------------------------------------
+// Identity & access
+// ---------------------------------------------------------------------------
+
+model Role {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @unique
+  description String?
+  isSystem    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users       User[]
+  permissions RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String   @id @default(uuid()) @db.Uuid
+  code        String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  roles RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String @db.Uuid
+  permissionId String @db.Uuid
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model User {
+  id           String    @id @default(uuid()) @db.Uuid
+  email        String    @unique
+  passwordHash String
+  firstName    String
+  lastName     String
+  phone        String?
+  isActive     Boolean   @default(true)
+  roleId       String    @db.Uuid
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  role Role @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  refreshTokens          RefreshToken[]
+  auditLogs              AuditLog[]
+  stockMovements         StockMovement[]     @relation("MovementPerformedBy")
+  stockInBatches         StockInBatch[]      @relation("StockInPerformedBy")
+  sales                  Sale[]              @relation("SalePerformedBy")
+  transfersCreated       Transfer[]          @relation("TransferCreatedBy")
+  transfersDispatched    Transfer[]          @relation("TransferDispatchedBy")
+  verificationLogs       VerificationLog[]   @relation("VerificationAttemptedBy")
+  notifications          StaffNotification[]
+
+  @@index([roleId])
+  @@index([isActive])
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+// ---------------------------------------------------------------------------
+// Product master
+// ---------------------------------------------------------------------------
+
+model Category {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @unique
+  code        String   @unique
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  products Product[]
+
+  @@map("categories")
+}
+
+model Product {
+  id            String   @id @default(uuid()) @db.Uuid
+  bcNumber      String   @unique
+  itemName      String
+  model         String
+  unit          String
+  brand         String?
+  description   String?
+  catalogRemark String?
+  isSerialized  Boolean  @default(true)
+  isActive      Boolean  @default(true)
+  categoryId    String   @db.Uuid
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  category          Category           @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  inventoryUnits    InventoryUnit[]
+  inventoryBalances InventoryBalance[]
+  stockMovements    StockMovement[]
+  stockInBatches    StockInBatch[]
+  saleItems         SaleItem[]
+  transferItems     TransferItem[]
+
+  @@index([categoryId])
+  @@index([itemName])
+  @@index([model])
+  @@index([isActive])
+  @@map("products")
+}
+
+// ---------------------------------------------------------------------------
+// Locations / regions
+// ---------------------------------------------------------------------------
+
+model Location {
+  id            String   @id @default(uuid()) @db.Uuid
+  name          String
+  code          String   @unique
+  address       String?
+  contactPerson String?
+  phone         String?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  inventoryUnits        InventoryUnit[]
+  inventoryBalances     InventoryBalance[]
+  stockInBatches        StockInBatch[]
+  sales                 Sale[]
+  transfersFrom         Transfer[]       @relation("TransferSource")
+  transfersTo           Transfer[]       @relation("TransferDestination")
+  movementsFrom         StockMovement[]  @relation("MovementSource")
+  movementsTo           StockMovement[]  @relation("MovementDestination")
+
+  @@index([isActive])
+  @@map("locations")
+}
+
+// ---------------------------------------------------------------------------
+// Serialized inventory units + non-serialized balances
+// ---------------------------------------------------------------------------
+
+model InventoryUnit {
+  id                String          @id @default(uuid()) @db.Uuid
+  productId         String          @db.Uuid
+  serialNumber      String          @unique
+  purchasePrice     Decimal         @db.Decimal(18, 2)
+  purchaseDate      DateTime        @db.Date
+  stockYear         Int?
+  status            InventoryStatus @default(IN_STOCK)
+  currentLocationId String          @db.Uuid
+  remark            String?
+  version           Int             @default(0)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  product         Product         @relation(fields: [productId], references: [id], onDelete: Restrict)
+  currentLocation Location        @relation(fields: [currentLocationId], references: [id], onDelete: Restrict)
+  movements       StockMovement[]
+  stockInItem     StockInItem?
+  saleItem        SaleItem?
+  transferItems   TransferItem[]
+  fieldEvents     TransferFieldEvent[]
+
+  @@index([productId])
+  @@index([status])
+  @@index([currentLocationId])
+  @@index([purchaseDate])
+  @@index([stockYear])
+  @@map("inventory_units")
+}
+
+/// Opening / non-serialized quantity by product, location, and stock year.
+model InventoryBalance {
+  id         String   @id @default(uuid()) @db.Uuid
+  productId  String   @db.Uuid
+  locationId String   @db.Uuid
+  stockYear  Int      @default(2018)
+  quantity   Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  product  Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
+  location Location @relation(fields: [locationId], references: [id], onDelete: Restrict)
+
+  @@unique([productId, locationId, stockYear])
+  @@index([stockYear])
+  @@map("inventory_balances")
+}
+
+// ---------------------------------------------------------------------------
+// Immutable stock movement ledger
+// ---------------------------------------------------------------------------
+
+model StockMovement {
+  id                   String       @id @default(uuid()) @db.Uuid
+  inventoryUnitId      String?      @db.Uuid
+  productId            String       @db.Uuid
+  movementType         MovementType
+  quantity             Int          @default(1)
+  sourceLocationId     String?      @db.Uuid
+  destinationLocationId String?     @db.Uuid
+  purchasePrice        Decimal?     @db.Decimal(18, 2)
+  sellingPrice         Decimal?     @db.Decimal(18, 2)
+  referenceNumber      String
+  notes                String?
+  performedById        String?      @db.Uuid
+  stockInBatchId       String?      @db.Uuid
+  saleId               String?      @db.Uuid
+  transferId           String?      @db.Uuid
+  createdAt            DateTime     @default(now())
+
+  inventoryUnit       InventoryUnit? @relation(fields: [inventoryUnitId], references: [id], onDelete: Restrict)
+  product             Product        @relation(fields: [productId], references: [id], onDelete: Restrict)
+  sourceLocation      Location?      @relation("MovementSource", fields: [sourceLocationId], references: [id], onDelete: Restrict)
+  destinationLocation Location?      @relation("MovementDestination", fields: [destinationLocationId], references: [id], onDelete: Restrict)
+  performedBy         User?          @relation("MovementPerformedBy", fields: [performedById], references: [id], onDelete: Restrict)
+  stockInBatch        StockInBatch?  @relation(fields: [stockInBatchId], references: [id], onDelete: SetNull)
+  sale                Sale?          @relation(fields: [saleId], references: [id], onDelete: SetNull)
+  transfer            Transfer?      @relation(fields: [transferId], references: [id], onDelete: SetNull)
+
+  @@index([inventoryUnitId])
+  @@index([productId])
+  @@index([movementType])
+  @@index([referenceNumber])
+  @@index([createdAt])
+  @@index([performedById])
+  @@index([sourceLocationId])
+  @@index([destinationLocationId])
+  @@map("stock_movements")
+}
+
+// ---------------------------------------------------------------------------
+// Stock In
+// ---------------------------------------------------------------------------
+
+model StockInBatch {
+  id              String             @id @default(uuid()) @db.Uuid
+  referenceNumber String             @unique
+  productId       String             @db.Uuid
+  locationId      String             @db.Uuid
+  quantity        Int
+  totalCost       Decimal            @db.Decimal(18, 2)
+  unitCost        Decimal            @db.Decimal(18, 2)
+  purchaseDate    DateTime           @db.Date
+  stockYear       Int
+  fsNumber        String
+  remark          String?
+  status          StockInBatchStatus @default(COMPLETED)
+  performedById   String             @db.Uuid
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  product     Product         @relation(fields: [productId], references: [id], onDelete: Restrict)
+  location    Location        @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  performedBy User            @relation("StockInPerformedBy", fields: [performedById], references: [id], onDelete: Restrict)
+  items       StockInItem[]
+  movements   StockMovement[]
+
+  @@index([productId])
+  @@index([locationId])
+  @@index([purchaseDate])
+  @@index([stockYear])
+  @@index([fsNumber])
+  @@index([performedById])
+  @@index([createdAt])
+  @@map("stock_in_batches")
+}
+
+model StockInItem {
+  id              String   @id @default(uuid()) @db.Uuid
+  stockInBatchId  String   @db.Uuid
+  inventoryUnitId String   @unique @db.Uuid
+  serialNumber    String
+  purchasePrice   Decimal  @db.Decimal(18, 2)
+  createdAt       DateTime @default(now())
+
+  batch         StockInBatch  @relation(fields: [stockInBatchId], references: [id], onDelete: Restrict)
+  inventoryUnit InventoryUnit @relation(fields: [inventoryUnitId], references: [id], onDelete: Restrict)
+
+  @@index([stockInBatchId])
+  @@index([serialNumber])
+  @@map("stock_in_items")
+}
+
+// ---------------------------------------------------------------------------
+// Direct sale
+// ---------------------------------------------------------------------------
+
+model Sale {
+  id              String     @id @default(uuid()) @db.Uuid
+  referenceNumber String     @unique
+  locationId      String     @db.Uuid
+  saleDate        DateTime   @db.Date
+  stockYear       Int
+  fsNumber        String
+  status          SaleStatus @default(COMPLETED)
+  notes           String?
+  performedById   String     @db.Uuid
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  location    Location        @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  performedBy User            @relation("SalePerformedBy", fields: [performedById], references: [id], onDelete: Restrict)
+  items       SaleItem[]
+  movements   StockMovement[]
+
+  @@index([locationId])
+  @@index([saleDate])
+  @@index([stockYear])
+  @@index([fsNumber])
+  @@index([performedById])
+  @@index([createdAt])
+  @@map("sales")
+}
+
+model SaleItem {
+  id              String   @id @default(uuid()) @db.Uuid
+  saleId          String   @db.Uuid
+  inventoryUnitId String   @unique @db.Uuid
+  productId       String   @db.Uuid
+  serialNumber    String
+  purchasePrice   Decimal  @db.Decimal(18, 2)
+  sellingPrice    Decimal  @db.Decimal(18, 2)
+  profit          Decimal  @db.Decimal(18, 2)
+  createdAt       DateTime @default(now())
+
+  sale          Sale          @relation(fields: [saleId], references: [id], onDelete: Restrict)
+  inventoryUnit InventoryUnit @relation(fields: [inventoryUnitId], references: [id], onDelete: Restrict)
+  product       Product       @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([saleId])
+  @@index([productId])
+  @@index([serialNumber])
+  @@map("sale_items")
+}
+
+// ---------------------------------------------------------------------------
+// Regional transfers
+// ---------------------------------------------------------------------------
+
+model TransferReason {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @unique
+  code        String   @unique
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  transfers Transfer[]
+
+  @@map("transfer_reasons")
+}
+
+model Transfer {
+  id                    String         @id @default(uuid()) @db.Uuid
+  referenceNumber       String         @unique
+  sourceLocationId      String         @db.Uuid
+  destinationLocationId String         @db.Uuid
+  reasonId              String         @db.Uuid
+  status                TransferStatus @default(CREATED)
+  receiverName          String         @default("Awaiting receiver")
+  receiverPhone         String?
+  stockYear             Int
+  fsNumber              String
+  dispatchDate          DateTime?      @db.Date
+  receivedAt            DateTime?
+  receivedLat           Float?
+  receivedLng           Float?
+  receivedAccuracyM     Float?
+  notes                 String?
+  createdById           String         @db.Uuid
+  dispatchedById        String?        @db.Uuid
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+
+  sourceLocation      Location               @relation("TransferSource", fields: [sourceLocationId], references: [id], onDelete: Restrict)
+  destinationLocation Location               @relation("TransferDestination", fields: [destinationLocationId], references: [id], onDelete: Restrict)
+  reason              TransferReason         @relation(fields: [reasonId], references: [id], onDelete: Restrict)
+  createdBy           User                   @relation("TransferCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  dispatchedBy        User?                  @relation("TransferDispatchedBy", fields: [dispatchedById], references: [id], onDelete: Restrict)
+  items               TransferItem[]
+  tokens              TransferReceiptToken[]
+  verificationLogs    VerificationLog[]
+  movements           StockMovement[]
+  fieldEvents         TransferFieldEvent[]
+
+  @@index([sourceLocationId])
+  @@index([destinationLocationId])
+  @@index([status])
+  @@index([stockYear])
+  @@index([fsNumber])
+  @@index([createdById])
+  @@index([createdAt])
+  @@map("transfers")
+}
+
+model TransferItem {
+  id                   String             @id @default(uuid()) @db.Uuid
+  transferId           String             @db.Uuid
+  inventoryUnitId      String             @db.Uuid
+  productId            String             @db.Uuid
+  expectedSerialNumber String
+  scannedSerialNumber  String?
+  status               TransferItemStatus @default(PENDING)
+  receivedAt           DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  transfer      Transfer      @relation(fields: [transferId], references: [id], onDelete: Restrict)
+  inventoryUnit InventoryUnit @relation(fields: [inventoryUnitId], references: [id], onDelete: Restrict)
+  product       Product       @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@unique([transferId, inventoryUnitId])
+  @@index([inventoryUnitId])
+  @@index([productId])
+  @@index([expectedSerialNumber])
+  @@index([status])
+  @@map("transfer_items")
+}
+
+model TransferReceiptToken {
+  id         String              @id @default(uuid()) @db.Uuid
+  transferId String              @db.Uuid
+  purpose    ReceiptTokenPurpose @default(RECEIVE)
+  tokenHash  String              @unique
+  /// Plain token kept so staff can re-share the link while active.
+  tokenPlain String?
+  expiresAt  DateTime
+  usedAt     DateTime?
+  status     ReceiptTokenStatus  @default(ACTIVE)
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+
+  transfer Transfer @relation(fields: [transferId], references: [id], onDelete: Restrict)
+
+  @@index([transferId])
+  @@index([purpose])
+  @@index([status])
+  @@index([expiresAt])
+  @@map("transfer_receipt_tokens")
+}
+
+/// Field maintenance / proof-of-work after regional receive.
+model TransferFieldEvent {
+  id               String   @id @default(uuid()) @db.Uuid
+  transferId       String   @db.Uuid
+  inventoryUnitId  String   @db.Uuid
+  serialNumber     String
+  lat              Float
+  lng              Float
+  accuracyM        Float?
+  photoPath        String
+  notes            String?
+  performedByName  String
+  performedByPhone String
+  createdAt        DateTime @default(now())
+
+  transfer      Transfer      @relation(fields: [transferId], references: [id], onDelete: Restrict)
+  inventoryUnit InventoryUnit @relation(fields: [inventoryUnitId], references: [id], onDelete: Restrict)
+
+  @@index([transferId])
+  @@index([inventoryUnitId])
+  @@index([createdAt])
+  @@map("transfer_field_events")
+}
+
+model StaffNotification {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String?   @db.Uuid
+  type      String
+  title     String
+  body      String
+  entity    String?
+  entityId  String?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([readAt])
+  @@index([createdAt])
+  @@map("staff_notifications")
+}
+
+model VerificationLog {
+  id                   String             @id @default(uuid()) @db.Uuid
+  transferId           String             @db.Uuid
+  expectedSerialNumber String?
+  scannedSerialNumber  String?
+  result               VerificationResult
+  attemptedAt          DateTime           @default(now())
+  ipAddress            String?
+  userAgent            String?
+  receiverName         String?
+  attemptedById        String?            @db.Uuid
+
+  transfer    Transfer @relation(fields: [transferId], references: [id], onDelete: Restrict)
+  attemptedBy User?    @relation("VerificationAttemptedBy", fields: [attemptedById], references: [id], onDelete: SetNull)
+
+  @@index([transferId])
+  @@index([result])
+  @@index([attemptedAt])
+  @@map("verification_logs")
+}
+
+// ---------------------------------------------------------------------------
+// Audit (append-only)
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String?  @db.Uuid
+  action    String
+  entity    String
+  entityId  String?
+  oldValue  Json?
+  newValue  Json?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([action])
+  @@index([entity])
+  @@index([entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// ---------------------------------------------------------------------------
+// Human-readable document numbers (SI-2026-0001, SL-2026-0001, TR-2026-0001)
+// ---------------------------------------------------------------------------
+
+model DocumentSequence {
+  id         String @id @default(uuid()) @db.Uuid
+  prefix     String
+  year       Int
+  lastNumber Int    @default(0)
+
+  @@unique([prefix, year])
+  @@map("document_sequences")
+}

@@ -1,0 +1,11 @@
+node_modules
+dist
+coverage
+.env
+.env.local
+*.log
+.DS_Store
+/generated
+prisma/*.db
+prisma/*.db-journal
+uploads
